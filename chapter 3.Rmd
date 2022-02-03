@@ -1,0 +1,106 @@
+---
+title: "Chapter 3"
+author: "Alina Kereszt"
+date: '2022 02 01 '
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(rethinking)
+```
+
+
+# Sampling from a grid-approximate posterior
+```{r}
+# Code from the previous chapter to generate posterior
+p_grid <- seq(0, 1, length.out = 1000)
+prob_p <- rep(1 , 1000)
+prob_data <- dbinom(6, size = 9, prob = p_grid)
+posterior <- prob_data * prob_p
+posterior <- posterior / sum(posterior)
+
+# Posterior is essentially a bucket of possible values for the parameter. Each
+# value exists in proportion to its posterior probability. We scoop 10000 values
+# from a well-mixed bucket. The individual values of _p_ should appear in 
+# proportion to their posterior probability.
+samples <- sample(p_grid, prob = posterior, size = 1e4, replace = TRUE)
+
+# Plot sequentially, as samples are drawn
+plot(samples)
+
+# Density estimate computed from them
+dens(samples)
+```
+
+# Summarizing samples from grid-approximate posterior
+```{r}
+# Add up posterior probability where p < 0.5, taking directly from the vector
+# of posterior probabilities
+sum(posterior[p_grid < 0.5])
+# The same from the sampling (frequency of parameter values below 0.5)
+sum(samples < 0.5) / 1e4
+# "sum" counts the number of times the condition is TRUE in the vector, so to 
+# scale it to a max value of 1, we need to divide by the total number of 
+# observations
+
+# Frequency of posterior probabilities of water between 0.5 and 0.75
+sum(samples > 0.5 & samples < 0.75) / 1e4
+
+# Finding an interval of defined mass, i.e. a confidence interval (/ credible 
+# interval / compatibility interval).
+# Boundaries of lower 80% posterior probability
+quantile(samples, 0.8)
+
+# Boundaries of middle 80% posterior probability
+quantile(samples, c(0.1, 0.9))
+# Or, using the rethinking package
+PI(samples, prob = 0.8)
+
+# Highest Posterior Density Interval - narrowest interval containing the speci-
+# fied probability mass
+HPDI(samples, prob = 0.8)
+
+# Parameter value with highest posterior probability, a "maximum a posteriori" 
+# (MAP) estimate
+# Directly from posterior probability vector
+p_grid[which.max(posterior)]
+# From samples of the posterior distribution
+chainmode(samples, adj = 0.01)
+mean(samples)
+median(samples)
+
+# I have to guess the correct value of the parameter while having access to the
+# posterior distribution. The money I lose is proportional to the distance of
+# my decision (d) to the parameter value (p)
+# List of loss values for each possible decision
+loss <- sapply(p_grid, function(d) sum(posterior * abs(d - p_grid)))
+
+# Parameter value minimizing loss
+p_grid[which.min(loss)]
+# It's the median!
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

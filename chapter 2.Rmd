@@ -1,0 +1,213 @@
+---
+title: "Chapter 2"
+author: "Alina Kereszt"
+date: '2022 01 31 '
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(rethinking)
+```
+
+# Posterior probability of pointing at water on a globe - GRID APPROXIMATION
+```{r}
+# (1) Define the grid. This means you decide how many points to use in 
+# estimating the posterior, and then you make a list of the parameter values 
+# on the grid.
+p_grid <- seq(from = 0, to = 1, length.out = 20) # possible parameter values 
+# (possible proportion of water on the globe)
+
+# (2) Compute the value of the prior at each parameter value on the grid.
+prior <- rep(1, 20) # flat prior - all possible parameter values are equally
+# likely
+
+# (3) Compute the likelihood at each parameter value.
+likelihood <- dbinom(6, size = 9, prob = p_grid) # the likelihood of getting
+# 6 waters out 9 points, if the estimated proportion of water on the globe is
+# a specific value of p_grid
+
+# (4) Compute the unstandardized posterior at each parameter value, by 
+# multiplying the prior by the likelihood.
+unstd.posterior <- likelihood * prior
+
+# (5) Finally, standardize the posterior, by dividing each value by the sum of 
+# all values
+posterior <- unstd.posterior / sum(unstd.posterior) # the posterior probabili-
+# ties now sum to 1, so we can compare them
+
+plot(x = p_grid,
+     y = posterior,
+     type = "b",
+     xlab = "probability of water", # i.e. the possible %s of water on globe
+     ylab = "posterior probability") # i.e. probability of that being the 
+# actual & of water on the globe
+mtext("20 points") # amount of possible %s of water we investigated
+```
+
+The same with a different prior:
+```{r}
+# (1) Define the grid. This means you decide how many points to use in 
+# estimating the posterior, and then you make a list of the parameter values 
+# on the grid.
+p_grid <- seq(from = 0, to = 1, length.out = 20) # possible parameter values 
+# (possible proportion of water on the globe)
+
+# (2) Compute the value of the prior at each parameter value on the grid.
+prior <- ifelse(p_grid < 0.5, 0, 1) # probability of p_grid values <0.5 is 0, 
+# while p_grid values above 0.5 are equally likely
+
+# (3) Compute the likelihood at each parameter value.
+likelihood <- dbinom(6, size = 9, prob = p_grid) # the likelihood of getting
+# 6 waters out 9 points, if the estimated proportion of water on the globe is
+# a specific value of p_grid
+
+# (4) Compute the unstandardized posterior at each parameter value, by 
+# multiplying the prior by the likelihood.
+unstd.posterior <- likelihood * prior
+
+# (5) Finally, standardize the posterior, by dividing each value by the sum of 
+# all values
+posterior <- unstd.posterior / sum(unstd.posterior) # the posterior probabili-
+# ties now sum to 1, so we can compare them
+
+plot(x = p_grid,
+     y = posterior,
+     type = "b",
+     xlab = "probability of water", # i.e. the possible %s of water on globe
+     ylab = "posterior probability") # i.e. probability of that being the 
+# actual & of water on the globe
+mtext("20 points") # amount of possible %s of water we investigated
+```
+
+Yet another prior:
+```{r}
+# (1) Define the grid. This means you decide how many points to use in 
+# estimating the posterior, and then you make a list of the parameter values 
+# on the grid.
+p_grid <- seq(from = 0, to = 1, length.out = 20) # possible parameter values 
+# (possible proportion of water on the globe)
+
+# (2) Compute the value of the prior at each parameter value on the grid.
+prior <- exp(-5 * abs(p_grid - 0.5)) # essentially a mountain with its peak 
+# at 0.5: 0.5 is the most likely proportion of water on the globe
+
+# (3) Compute the likelihood at each parameter value.
+likelihood <- dbinom(6, size = 9, prob = p_grid) # the likelihood of getting
+# 6 waters out 9 points, if the estimated proportion of water on the globe is
+# a specific value of p_grid
+
+# (4) Compute the unstandardized posterior at each parameter value, by 
+# multiplying the prior by the likelihood.
+unstd.posterior <- likelihood * prior
+
+# (5) Finally, standardize the posterior, by dividing each value by the sum of 
+# all values
+posterior <- unstd.posterior / sum(unstd.posterior) # the posterior probabili-
+# ties now sum to 1, so we can compare them
+
+plot(x = p_grid,
+     y = posterior,
+     type = "b",
+     xlab = "probability of water", # i.e. the possible %s of water on globe
+     ylab = "posterior probability") # i.e. probability of that being the 
+# actual & of water on the globe
+mtext("20 points") # amount of possible %s of water we investigated
+```
+
+# Posterior probability of pointing at water on a globe - QUADRATIC APPROXIMATION
+```{r}
+globe.qa <- quap(
+  
+  # PROVIDE A FORMULA
+  alist(
+    W ~ dbinom(W + L, p), # binomial likelihood of pointing at water if size is 
+    # number of W values + number of L values, and probability is p
+    p ~ dunif(0, 1) # uniform prior where minimum probability is 0 and maximum
+    # probability is 1
+  ),
+  
+  # PROVIDE SOME DATA
+  data = list(W = 6, L = 3)
+)
+
+# summary of quadratic approximation
+precis(globe.qa)
+
+# Assuming the posterior is Gaussian, it is maximized at 0.67, and its standard 
+# deviation is 0.16. I.e. the most likely probability of water at any given 
+# point on the globe is 0.67.
+```
+
+# Posterior probability of pointing at water on a globe - MARKOV CHAIN MONTE CARLO
+```{r}
+# We take 1000 samples.
+n_samples <- 1000
+
+# p is a value from the posterior distribution - i.e. a possible posterior 
+# probability 
+p <- rep(NA, n_samples)
+
+# ... let's try with a posterior plausibility of 0.5. We don't know what 
+# parameter value (probability of water at any given point on the globe) it is 
+# associated with!
+p[1] <- 0.5
+
+# We tossed our globe 9 times. Here's how many of those tosses landed on water
+# or on land.
+W <- 6
+L <- 3
+
+# Loop-de-doop!
+for (i in 2:n_samples) {
+  
+  # We get a new sample from the posterior probabilities. This new posterior 
+  # probability is drawn from a normal distribution with the mean of the 
+  # previous posterior probability we drew, and a standard deviation of 0.1.
+  p_new <- rnorm(1, p[i-1], 0.1)
+  
+  # Posterior probabilities are always between 0 and 1 so some cosmetics may
+  # be needed.
+  if (p_new < 0) p_new <- abs(p_new)
+  if (p_new > 1) p_new <- 2 - p_new
+  
+  # Binomial likelihood of the previous posterior probability.
+  q0 <- dbinom(W , W + L , p[i-1])
+  # Binomial likelihood of the previous posterior probability.
+  q1 <- dbinom(W , W + L , p_new)
+  
+  # We take a single random number from a uniform distribution that is between
+  # 0 and 1. If the proportion of q1 to q0 is greater than this random number,
+  # we go forth with the new probability; if not, we continue with our original.
+  p[i] <- ifelse(runif(1) < q1/q0, p_new, p[i-1])
+}
+
+dens(p , xlim = c(0, 1)) # histogram of the proportion of times a specific
+# posterior probability was sampled during this process.
+curve(dbeta(x, W + 1 ,L + 1), lty = 2, add = TRUE) # analytical derivation
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
