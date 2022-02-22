@@ -8,6 +8,7 @@ output: html_document
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE)
 library(rethinking)
+set.seed(420)
 ```
 
 
@@ -15,7 +16,7 @@ library(rethinking)
 ```{r}
 # Code from the previous chapter to generate posterior
 p_grid <- seq(0, 1, length.out = 1000)
-prob_p <- rep(1 , 1000)
+prob_p <- rep(1, 1000)
 prob_data <- dbinom(6, size = 9, prob = p_grid)
 posterior <- prob_data * prob_p
 posterior <- posterior / sum(posterior)
@@ -81,7 +82,41 @@ p_grid[which.min(loss)]
 # It's the median!
 ```
 
+# Dummy data
+```{r}
+# We toss the globe 2 times, meaning that we can land on water 0, 1 or 2 times.
+# If the probability of landing on water is p = 0.7, then here is the likelihood
+# of each of these numbers.
+dbinom(0:2, size = 2, prob = 0.7)
 
+# We can simulate observations using these probabilities. A single observation:
+rbinom(1, size = 2, prob = 0.7)
+
+# We can also simulate multiple observations.
+rbinom(10, size = 2, prob = 0.7)
+
+# And check if the likelihoods of dbinom are represented in the proportions in 
+# a large sampling.
+dummy_w <- rbinom(1e5, size = 2, prob = 0.7)
+table(dummy_w) / 1e5
+
+# Increase sample size to 9 tosses of the globe
+dummy_w <- rbinom(1e5, size = 9, prob = 0.7)
+simplehist(dummy_w, xlab = "dummy water count")
+```
+
+# Posterior predictive distribution
+```{r}
+# Simulate outcomes
+w <- rbinom(1e4, size = 9, prob = 0.6) # counts of water
+simplehist(w)
+
+# Add parameter uncertainty into outcomes by replacing probability with samples
+# from the posterior probability distribution
+w <- rbinom(1e4, size = 9, prob = samples) # 'samples' variable from previous 
+# exercise
+simplehist(w)
+```
 
 
 

@@ -1,0 +1,224 @@
+---
+title: "chapter 4"
+author: "Alina Kereszt"
+date: '2022 02 10 '
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(rethinking)
+```
+
+# EVERYTHING TURNS TO NORMAL
+## Moving left and right based on coin tosses
+1000 people line up behind each other. They each toss a coin 16 times. For each toss, if it's heads, they take one step in a certain direction, and if it's tails, they take one step in the other direction.
+```{r}
+# simulate data
+# each step is anywhere between 0m and 1m, in two directions, so we sample 16
+# random numbers between -1 and 1 to represent them, and add them up to calcu-
+# late the final position
+# then do this 999 more times for 1000 people
+pos <- replicate(1000, sum(runif(16, -1, 1)))
+
+# plot
+plot(density(pos))
+hist(pos)
+```
+
+## Growth based on interacting alleles
+"Suppose the growth rate of an organism is influenced by a dozen loci, each with several alleles that code for more growth. Suppose also that all of these loci interact with one another, such that each increase growth by a percentage. This means that their effects multiply, rather than add.
+```{r}
+# simulate data
+# 12 alleles add between 0% and 10% growth. we add these growths to the baseline
+# of 100% size and take their product (so e.g. 1.07 * 1 * 1.1 * etc)
+growth <- replicate(10000, prod(1 + runif(12, 0, 0.1)))
+
+# plot
+dens(growth, norm.comp = TRUE) # overlay normal density comparison
+
+# the convergence to normality happens because the multiplication, since it is
+# done with sufficiently small numbers, actually approximates addition
+big <- replicate(10000, prod(1 + runif(12, 0, 0.5)))
+small <- replicate(10000, prod(1 + runif(12, 0, 0.01)))
+
+dens(big, norm.comp = TRUE)
+dens(small, norm.comp = TRUE)
+```
+
+## Normal by log-multiplication
+Large deviates that are multiplied together do not produce Gaussian distributions, but they do tend to produce Gaussian distributions on the log scale.
+```{r}
+log.big <- replicate(10000, log(prod(1 + runif(12, 0, 0.5))))
+dens(log.big, norm.comp = TRUE)
+```
+
+# Building a linear regression - Population height
+## Data
+```{r}
+# load data from rethinking package
+data("Howell1")
+d <- Howell1
+
+# inspect structure of data
+str(d)
+precis(d, hist = FALSE)
+
+# filter out minors
+d2 <- d[d$age >= 18,]
+# the comma is there because d[row,col]
+
+# plot height
+dens(d2$height)
+```
+
+hˇi ∼ Normal(μ, σ) *[likelihood of each individual height]*
+μ ∼ Normal(178, 20) *[mean prior]*
+σ ∼ Uniform(0, 50) *[standard deviation prior]*
+
+## Priors
+```{r}
+# plot priors
+curve(dnorm(x, 178, 20), from = 100, to = 250)
+curve(dunif(x, 0, 50), from = -10, to = 60)
+
+# you can quickly simulate heights by sampling from the prior, like you would 
+# sample from the posterior
+sample_mu <- rnorm(1e4, 178, 20)
+sample_sigma <- runif(1e4, 0, 50)
+prior_h <- rnorm(1e4, sample_mu, sample_sigma)
+dens(prior_h)
+
+# what if we use a Gaussian prior with greater standard deviation?
+sample_mu <- rnorm(1e4, 178, 100)
+prior_h <- rnorm(1e4, sample_mu, sample_sigma)
+dens(prior_h)
+# you'd think it was plausible to be -1 meters tall!
+```
+
+## Grid approximation of the posterior distribution
+This method sucks (computationally expensive, often impossible), so there isn't really much point in understanding what's going on here. Basically, due to having two dimensions, it turns into an impractical nuisance.
+```{r}
+# ugly code from book; see explanation there in case you wanna steal sth
+mu.list <- seq( from=150, to=160 , length.out=100 )
+sigma.list <- seq( from=7 , to=9 , length.out=100 )
+post <- expand.grid( mu=mu.list , sigma=sigma.list )
+post$LL <- sapply( 1:nrow(post) , function(i) sum( dnorm( d2$height , post$mu[i] , post$sigma[i] , log=TRUE ) ) )
+post$prod <- post$LL + dnorm( post$mu , 178 , 20 , TRUE ) + dunif( post$sigma , 0 , 50 , TRUE )
+post$prob <- exp( post$prod - max(post$prod) )
+
+#contour plot
+contour_xyz(post$mu, post$sigma, post$prob)
+
+#heatmap
+image_xyz(post$mu, post$sigma, post$prob)
+```
+
+## Sampling parameter values from the posterior distribution
+```{r}
+# there are two dimensions, and we want different combinations of them so we 
+# begin by sampling random rows from post
+sample.rows <- sample(1:nrow(post), 
+                      size = 1e4, 
+                      replace = TRUE, 
+                      prob = post$prob)
+sample.mu <- post$mu[sample.rows]
+sample.sigma <- post$sigma[sample.rows]
+
+# plot
+plot(sample.mu, 
+     sample.sigma, 
+     cex = 0.5, 
+     pch = 16, 
+     col = col.alpha(rangi2, 0.1))
+
+# marginal posterior densities of mu and sigma (marginal = averaged over the
+# other parameters)
+dens(sample.mu)
+dens(sample.sigma)
+
+# posterior compatibility intervals
+PI(sample.mu)
+PI(sample.sigma)
+```
+
+## Finding the posterior distribution with quadratic approximation
+```{r}
+# you can do this with the function _quap_
+# it intakes a list corresponding to the formulas that define the model
+flist <- alist(
+  height ~ dnorm(mu, sigma),
+  mu ~ dnorm(178, 20),
+  sigma ~ dunif(0, 50)
+)
+
+# fit model to the data
+m4.1 <- quap(flist, d2)
+
+# inspect posterior distribution
+precis(m4.1)
+
+# the data obliterated the priors, so we can also try a more informative prior;
+# one with a tiiiiiny standard deviation for the mean
+# we're gonna smush the above code together
+m4.2 <- quap(
+  alist(
+    height ~ dnorm(mu, sigma),
+    mu ~ dnorm(178, 0.1), # here is where the change is
+    sigma ~ dunif(0, 50)),
+  data = d2
+)
+precis(m4.2)
+```
+
+Sampling from it:
+```{r}
+# with more than one parameter, the posterior Gaussian is actually also multi-
+# dimensional! this means that the mu and sigma values for the distributions
+# for each parameter covary to a certain degree
+
+# variance-covariance matrix
+vcov(m4.1)
+
+# actually a 2-in-1 deal!
+# vector of variances for the parameters
+diag(vcov(m4.1))
+# a correlation matrix that tells us how changes in any parameter lead to 
+# correlated changes in the others
+cov2cor(vcov(m4.1))
+
+# sample *vectors of values* from the posterior distribution
+post <- extract.samples(m4.1, n = 1e4)
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
