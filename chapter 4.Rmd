@@ -192,12 +192,297 @@ post <- extract.samples(m4.1, n = 1e4)
 ```
 
 
+# Linear prediction
+```{r}
+# plot relationship between height and weight
+plot( d2$height ~ d2$weight )
 
+# let "x" be the name for the column of weight measurements!
+# and in order to understand our model... let's simulate the prior predictive
+# distribution !
+set.seed(2971)
+N <- 100 # 100 lines
+a <- rnorm( N , 178 , 20 )
+b <- rnorm( N , 0 , 10 ) # 100 pairs of values for alpha and beta
 
+# plot possible regression lines based on the value pairs
+plot( NULL , xlim=range(d2$weight) , ylim=c(-100,400) ,
+      xlab="weight" , ylab="height" )
+abline( h=0 , lty=2 ) # 0m tall
+abline( h=272 , lty=1 , lwd=0.5 ) # Robert Wadlow - tallest person
+mtext( "b ~ dnorm(0,10)" )
+xbar <- mean(d2$weight)
+for ( i in 1:N ) curve( a[i] + b[i]*(x - xbar) ,
+                        from=min(d2$weight) , to=max(d2$weight) , add=TRUE ,
+                        col=col.alpha("black",0.2) )
+# crap model - some of it implies height and weight to be inversely 
+# proportional!
 
+# average height increases with average weight, at least up to a point
+# we should restrict to positive values --> log-normal is easiest way to do this
+# to define a parameter as Log-Normal(0,1) means that its logarithm has a
+# Normal(0, 1) distribution
+# here is what that looks like:
+b <- rlnorm( 1e4 , 0 , 1 )
+dens( b , xlim=c(0,5) , adj=0.1 )
 
+# try prior predictive simulation again
+set.seed(2971)
+N <- 100 # 100 lines
+a <- rnorm( N , 178 , 20 )
+b <- rlnorm( N , 0 , 1 )
 
+plot( NULL , xlim=range(d2$weight) , ylim=c(-100,400) ,
+      xlab="weight" , ylab="height" )
+abline( h=0 , lty=2 ) # 0m tall
+abline( h=272 , lty=1 , lwd=0.5 ) # Robert Wadlow - tallest person
+mtext( "b ~ dnorm(0,10)" )
+xbar <- mean(d2$weight)
+for ( i in 1:N ) curve( a[i] + b[i]*(x - xbar) ,
+                        from=min(d2$weight) , to=max(d2$weight) , add=TRUE ,
+                        col=col.alpha("black",0.2) )
+# much nicer
 
+# define the average weight, x-bar
+xbar <- mean(d2$weight)
+
+# fit model
+m4.3 <- quap(
+  alist(
+    height ~ dnorm( mu , sigma ) ,
+    mu <- a + b*( weight - xbar ) ,
+    a ~ dnorm( 178 , 20 ) ,
+    b ~ dlnorm( 0 , 1 ) ,
+    sigma ~ dunif( 0 , 50 )
+    ) ,
+  data=d2 )
+```
+
+Tables of marginal distributions
+```{r}
+precis( m4.3 )
+# b is a slope --> a person 1 kg heavier is expected to be 0.90 cm taller
+
+round( vcov( m4.3 ) , 3 ) # very little covariance among parameters
+```
+
+Plotting posterior inference against the data
+```{r}
+# plot raw data, compute posterior mean values, then draw implied line
+plot( height ~ weight , data=d2 , col=rangi2 )
+post <- extract.samples( m4.3 )
+a_map <- mean(post$a)
+b_map <- mean(post$b)
+curve( a_map + b_map*(x - xbar) , add=TRUE )
+```
+
+Adding uncertainty around the mean
+```{r}
+# there are infinite number of other plausible lines around these means...
+# it's good to compute uncertainty !!
+
+# draw correlated samples from the joint posterior (based on vcov)
+post <- extract.samples( m4.3 )
+post[1:5,]
+# the average of very many of these lines is the posterior mean line
+
+########### DRAWING LINES WITH ONLY 10 DATA POINTS
+N <- 10
+dN <- d2[ 1:N , ]
+mN <- quap(
+  alist(
+    height ~ dnorm( mu , sigma ) ,
+    mu <- a + b*( weight - mean(weight) ) ,
+    a ~ dnorm( 178 , 20 ) ,
+    b ~ dlnorm( 0 , 1 ) ,
+    sigma ~ dunif( 0 , 50 )
+    ) , 
+  data=dN )
+
+# plot 20 lines
+# extract 20 samples from the posterior
+post <- extract.samples( mN , n=20 )
+# display raw data and sample size
+plot( dN$weight , dN$height ,
+      xlim=range(d2$weight) , ylim=range(d2$height) ,
+      col=rangi2 , xlab="weight" , ylab="height" )
+mtext(concat("N = ",N))
+# plot the lines, with transparency
+for ( i in 1:20 )
+  curve( post$a[i] + post$b[i]*(x-mean(dN$weight)) ,
+         col=col.alpha("black",0.3) , add=TRUE )
+# greater uncertainty at extreme values
+
+########### DRAWING LINES WITH ONLY 50 DATA POINTS
+N <- 50
+dN <- d2[ 1:N , ]
+mN <- quap(
+  alist(
+    height ~ dnorm( mu , sigma ) ,
+    mu <- a + b*( weight - mean(weight) ) ,
+    a ~ dnorm( 178 , 20 ) ,
+    b ~ dlnorm( 0 , 1 ) ,
+    sigma ~ dunif( 0 , 50 )
+    ) , 
+  data=dN )
+
+# plot 20 lines
+# extract 20 samples from the posterior
+post <- extract.samples( mN , n=20 )
+# display raw data and sample size
+plot( dN$weight , dN$height ,
+      xlim=range(d2$weight) , ylim=range(d2$height) ,
+      col=rangi2 , xlab="weight" , ylab="height" )
+mtext(concat("N = ",N))
+# plot the lines, with transparency
+for ( i in 1:20 )
+  curve( post$a[i] + post$b[i]*(x-mean(dN$weight)) ,
+         col=col.alpha("black",0.3) , add=TRUE )
+# greater uncertainty at extreme values; but uncertainty becomes smaller
+
+########### DRAWING LINES WITH ONLY 150 DATA POINTS
+N <- 150
+dN <- d2[ 1:N , ]
+mN <- quap(
+  alist(
+    height ~ dnorm( mu , sigma ) ,
+    mu <- a + b*( weight - mean(weight) ) ,
+    a ~ dnorm( 178 , 20 ) ,
+    b ~ dlnorm( 0 , 1 ) ,
+    sigma ~ dunif( 0 , 50 )
+    ) , 
+  data=dN )
+
+# plot 20 lines
+# extract 20 samples from the posterior
+post <- extract.samples( mN , n=20 )
+# display raw data and sample size
+plot( dN$weight , dN$height ,
+      xlim=range(d2$weight) , ylim=range(d2$height) ,
+      col=rangi2 , xlab="weight" , ylab="height" )
+mtext(concat("N = ",N))
+# plot the lines, with transparency
+for ( i in 1:20 )
+  curve( post$a[i] + post$b[i]*(x-mean(dN$weight)) ,
+         col=col.alpha("black",0.3) , add=TRUE )
+# greater uncertainty at extreme values; but uncertainty becomes even smaller
+
+########### DRAWING LINES WITH ALL DATA POINTS
+N <- 352
+dN <- d2[ 1:N , ]
+mN <- quap(
+  alist(
+    height ~ dnorm( mu , sigma ) ,
+    mu <- a + b*( weight - mean(weight) ) ,
+    a ~ dnorm( 178 , 20 ) ,
+    b ~ dlnorm( 0 , 1 ) ,
+    sigma ~ dunif( 0 , 50 )
+    ) , 
+  data=dN )
+
+# plot 20 lines
+# extract 20 samples from the posterior
+post <- extract.samples( mN , n=20 )
+# display raw data and sample size
+plot( dN$weight , dN$height ,
+      xlim=range(d2$weight) , ylim=range(d2$height) ,
+      col=rangi2 , xlab="weight" , ylab="height" )
+mtext(concat("N = ",N))
+# plot the lines, with transparency
+for ( i in 1:20 )
+  curve( post$a[i] + post$b[i]*(x-mean(dN$weight)) ,
+         col=col.alpha("black",0.3) , add=TRUE )
+# greater uncertainty at extreme values; but uncertainty becomes even smaller
+```
+
+Compute arbitrary interval of uncertainty
+```{r}
+# focus on weight = 50
+# 10,000 values of μ for an individual who weighs 50 kilograms, based on samples
+# from the posterior; i.e the height predicted for someone who is 50kg
+post <- extract.samples( m4.3 )
+mu_at_50 <- post$a + post$b * ( 50 - xbar )
+dens( mu_at_50 , col=rangi2 , lwd=2 , xlab="mu|weight=50" ) # plot
+PI( mu_at_50 , prob=0.89 ) # 89% compatibility interval ("confidence interval")
+
+# the same for the entire regression line
+mu <- link( m4.3 )
+str(mu) # matrix: for each extracted possible combination of a and b, and for
+# each data point, a value for mu is computed
+
+# we actually want a distribution of mu for each weight on the x axis
+weight.seq <- seq( from=25 , to=70 , by=1 ) # x axis (weight)
+mu <- link( m4.3 , data=data.frame(weight=weight.seq) ) # compute mu for all
+# of these values of x
+str(mu) # matrix; for each extracted possible combination of a and be, and for
+# each possible value of x that we are interested in
+
+# plot
+plot( height ~ weight , d2 , type="n" ) # 'n' hides raw data
+for ( i in 1:100 )
+  points( weight.seq , mu[i,] , pch=16 , col=col.alpha(rangi2,0.1) ) # loop
+# over samples and plot each mu value
+
+# summarize the distribution for each weight value
+mu.mean <- apply( mu , 2 , mean )
+mu.PI <- apply( mu , 2 , PI , prob=0.89 ) # 'apply' applies a function to an
+# entire matrix
+mu.mean # mean mu for each value of x
+mu.PI # 89% compatibility interval for value of mu
+
+# plot summaries on top of raw data
+plot( height ~ weight , data=d2 , col=col.alpha(rangi2,0.5) ) # raw data
+lines( weight.seq , mu.mean ) # MAP line (mean mu for each weight)
+shade( mu.PI , weight.seq ) # shaded region for 89% PI
+```
+
+Prediction intervals
+```{r}
+# now an 89% prediction interval for actual heights, not just the averages
+# the spread around mu is governed by sigma
+sim.height <- sim( m4.3 , data=list(weight=weight.seq) ) # simulate values of
+# y based on possible values of mu and sigma
+str(sim.height) # again a matrix
+height.PI <- apply( sim.height , 2 , PI , prob=0.89 )
+
+# plot
+plot( height ~ weight , d2 , col=col.alpha(rangi2,0.5) ) # plot raw data
+lines( weight.seq , mu.mean ) # draw MAP line
+shade( mu.PI , weight.seq ) # draw PI region for line
+shade( height.PI , weight.seq ) # draw PI region for simulated heights
+# if you want a less blurry line, you can simulate more values
+# if you want a different interval, choose whichever you like
+```
+
+# Non-linear regressions with a single predictor
+## Polynomial regression
+```{r}
+# we use powers and cubes of a variable
+# we use full Howell dataset (including kids)
+str(d)
+plot( d$height ~ d$weight )
+
+# standardize the data!
+d$weight_s <- ( d$weight - mean(d$weight) )/sd(d$weight)
+
+# pre-process any variable transformations
+d$weight_s2 <- d$weight_s^2 # store square of variable as its own variable
+
+m4.5 <- quap(
+  alist(
+    height ~ dnorm( mu , sigma ) ,
+    mu <- a + b1*weight_s + b2*weight_s2 ,
+    a ~ dnorm( 178 , 20 ) ,
+    b1 ~ dlnorm( 0 , 1 ) ,
+    b2 ~ dnorm( 0 , 1 ) ,
+    sigma ~ dunif( 0 , 50 )
+    ) ,
+  data=d )
+
+precis( m4.5 ) # extremely difficult to interpret; also a does *not* have to 
+# be the mean in a polynomial regression!
+
+```
 
 
 
