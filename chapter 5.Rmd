@@ -8,6 +8,7 @@ output: html_document
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE)
 library(rethinking)
+pacman::p_load(dagitty)
 set.seed(10)
 ```
 
@@ -20,6 +21,8 @@ d <- WaffleDivorce
 # standardize variables
 d$A <- scale( d$MedianAgeMarriage )
 d$D <- scale( d$Divorce )
+# a bA value of 1 will imply that a 1 SD change in one variable will correspond
+# to a 1 SD deviation in the other variable
 
 # divorce rate correlated with median age at marriage
 m5.1 <- quap(
@@ -33,19 +36,139 @@ m5.1 <- quap(
   data = d )
 ?quap
 
-# plausible regression lines implied by the priors
+# plausible regression lines implied by the priors (over 2 standard deviations)
 prior <- extract.prior( m5.1 )
 mu <- link( m5.1 , post=prior , data=list( A=c(-2,2) ) )
 plot( NULL , xlim=c(-2,2) , ylim=c(-2,2) )
 for ( i in 1:50 ) lines( c(-2,2) , mu[i,] , col=col.alpha("black",0.4) )
+
+# posterior predictions
+# compute percentile interval of mean
+A_seq <- seq( from=-3 , to=3.2 , length.out=30 )
+mu <- link( m5.1 , data=list(A=A_seq) )
+mu.mean <- apply( mu , 2, mean )
+mu.PI <- apply( mu , 2 , PI )
+
+# plot it all
+plot( D ~ A , data=d , col=rangi2 )
+lines( A_seq , mu.mean , lwd=2 )
+shade( mu.PI , A_seq )
+
+# the same for the association between marriage and divorce
+d$M <- scale( d$Marriage )
+m5.2 <- quap(
+  alist(
+    D ~ dnorm( mu , sigma ) ,
+    mu <- a + bM * M ,
+    a ~ dnorm( 0 , 0.2 ) ,
+    bM ~ dnorm( 0 , 0.5 ) ,
+    sigma ~ dexp( 1 )
+    ) , 
+  data = d )
 ```
 
+BUT! These are just 2 separate regressions - who knows what the relationship between them is??? We have to think causally!
 
+```{r}
+# draw DAG (directed acyclic graph)
+dag5.1 <- dagitty( "dag {
+A -> D
+A -> M
+M -> D
+}")
+coordinates(dag5.1) <- list( x=c(A=0,D=1,M=2) , y=c(A=0,D=1,M=0) )
+drawdag( dag5.1 )
 
+# make sure variables aren't independent of each other
+cor(d$MedianAgeMarriage, d$Divorce)
+cor(d$MedianAgeMarriage, d$Marriage)
+cor(d$Divorce, d$Marriage)
+# our DAG is possible! there is some kind of relationship between each link
 
+# check conditional independencies
+DMA_dag1 <- dagitty('dag{ D <- A -> M -> D }')
+impliedConditionalIndependencies( DMA_dag1 )
+# no output --> no conditional independencies
+```
 
+# Multiple regression
+```{r}
+# there are beta coefficients for each variable
+# predict divorce rate based on both median age at marriage (A) and marriage
+# rate (M)
+# in essence, divorce can be predicted by A OR M --> independent associations
+# fit model
+m5.3 <- quap(
+  alist(
+    D ~ dnorm( mu , sigma ) ,
+    mu <- a + bM*M + bA*A ,
+    a ~ dnorm( 0 , 0.2 ) ,
+    bM ~ dnorm( 0 , 0.5 ) ,
+    bA ~ dnorm( 0 , 0.5 ) ,
+    sigma ~ dexp( 1 )
+    ) ,
+  data = d )
+precis( m5.3 )
 
+# plot whether B coefficients have changed compared to previous models
+coeftab(m5.1,m5.2,m5.3)
+# plot( coeftab(m5.1,m5.2,m5.3), par=c("bA","bM") 
+# once we know median age at marriage for a State, there is little or no 
+# additional predictive power in also knowing the rate of marriage in that 
+# State, since bM does not predict when bA is also included in the model
+```
 
+# Plotting multivariate posteriors
+## Predictor residual plots
+```{r}
+# average prediction error when we use all of the other predictor variables to 
+# model a predictor of interest
+# approximate posterior for marriage rate
+m5.4 <- quap(
+  alist(
+    M ~ dnorm( mu , sigma ) ,
+    mu <- a + bAM * A ,
+    a ~ dnorm( 0 , 0.2 ) ,
+    bAM ~ dnorm( 0 , 0.5 ) ,
+    sigma ~ dexp( 1 )
+    ) , 
+  data = d )
+
+# subtract observed marriage rate (residuals)
+mu <- link(m5.4)
+mu_mean <- apply( mu , 2 , mean )
+mu_resid <- d$M - mu_mean
+# positive --> higher marriage rate than predicted
+# negative --> lower marriage rate than predicted
+```
+
+## Posterior prediction plots
+```{r}
+# simulate predictions
+# call link without specifying new data
+# so it uses original data
+mu <- link( m5.3 )
+# summarize samples across cases
+mu_mean <- apply( mu , 2 , mean )
+mu_PI <- apply( mu , 2 , PI )
+# simulate observations
+# again no new data, so uses original data
+D_sim <- sim( m5.3 , n=1e4 )
+D_PI <- apply( D_sim , 2 , PI )
+
+# plot
+plot( mu_mean ~ d$D , col=rangi2 , ylim=range(mu_PI) ,
+xlab="Observed divorce" , ylab="Predicted divorce" )
+abline( a=0 , b=1 , lty=2 )
+for ( i in 1:nrow(d) ) lines( rep(d$D[i],2) , mu_PI[,i] , col=rangi2 )
+# blue lines are 89% comp intervals
+identify( x=d$D , y=mu_mean , labels=d$Loc ) # label a few key points
+```
+
+## Counterfactual plots (implied predictions of the model)
+```{r}
+
+```
 
 
 
